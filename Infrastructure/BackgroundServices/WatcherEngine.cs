@@ -1,4 +1,8 @@
 using System.Diagnostics;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using KindleKeep.Api.API.Hubs;
 using KindleKeep.Api.Core.DTOs;
@@ -109,8 +113,6 @@ public class WatcherEngine(
                     long tcpHandshake = Math.Max(1, ttfb / 3);
                     await StreamLogAsync(target.Id.ToString(), $"> [TCP] TCP Handshake established in {tcpHandshake}ms.", stoppingToken);
 
-                    var issuer = response.RequestMessage?.RequestUri?.Host ?? "Unknown";
-                    await StreamLogAsync(target.Id.ToString(), $"> [TLS] Certificate verified (Issuer: {issuer}).", stoppingToken);
                     await StreamLogAsync(target.Id.ToString(), $"> [HTTP] Received {statusCode}. Initiating Sentinel Security Audit....", stoppingToken);
 
                     if (response.IsSuccessStatusCode)
@@ -149,11 +151,25 @@ public class WatcherEngine(
 
             var latency = (int)ttfb;
 
-            long tcpHandshakeStatic = 50;
-            long tlsNegotiation = 50;
-            long initLag = ttfb - (tcpHandshakeStatic + tlsNegotiation);
+            // Real certificate inspection (issuer, expiry, negotiated TLS version + handshake timing).
+            // Null for plain-HTTP targets or when the TLS handshake can't be completed.
+            var certInfo = await InspectCertificateAsync(target.Url, stoppingToken);
+            if (certInfo is not null)
+            {
+                await StreamLogAsync(target.Id.ToString(),
+                    $"> [TLS] {certInfo.TlsVersion} — issued by {certInfo.Issuer}, expires {certInfo.ExpiryUtc:yyyy-MM-dd}.", stoppingToken);
+            }
+            else if (target.Url.StartsWith("https", StringComparison.OrdinalIgnoreCase))
+            {
+                await StreamLogAsync(target.Id.ToString(), "> [TLS] Certificate inspection failed.", stoppingToken);
+            }
+
+            // ponytail: handshake timing comes from a separate TLS probe connection, so initLag is
+            // an approximation of serverless cold-start — good enough, and honest vs. the old hardcoded 50/50.
+            long handshakeMs = certInfo?.HandshakeMs ?? 0;
+            long initLag = Math.Max(0, ttfb - handshakeMs);
             bool isColdStart = initLag > 800;
-            
+
             if (ttfb > 800)
             {
                 await StreamLogAsync(target.Id.ToString(), "> [INIT] Cold start detected.", stoppingToken);
@@ -196,14 +212,14 @@ public class WatcherEngine(
 
                 if (status == UptimeStatus.Healthy)
                 {
-                    securityGrade = CalculateSecurityGrade(headersDict);
+                    securityGrade = CalculateSecurityGrade(headersDict, certInfo);
                     var rawHeadersJson = JsonSerializer.Serialize(headersDict, AppJsonSerializerContext.Default.DictionaryStringString);
 
                     await using var auditCommand = targetConnection.CreateCommand();
                     auditCommand.CommandText = @"
-                        INSERT INTO ""SecurityAudits"" (""Id"", ""MonitorId"", ""HasCsp"", ""HasHsts"", ""HasXfo"", ""HasNosniff"", ""RawHeaders"", ""CreatedAt"")
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)";
-                    
+                        INSERT INTO ""SecurityAudits"" (""Id"", ""MonitorId"", ""HasCsp"", ""HasHsts"", ""HasXfo"", ""HasNosniff"", ""RawHeaders"", ""CreatedAt"", ""SslIssuer"", ""SslExpiryAt"", ""TlsVersion"")
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)";
+
                     auditCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.NewGuid() });
                     auditCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = target.Id });
                     auditCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = headersDict.ContainsKey("Content-Security-Policy") });
@@ -212,12 +228,20 @@ public class WatcherEngine(
                     auditCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = headersDict.ContainsKey("X-Content-Type-Options") });
                     auditCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = rawHeadersJson });
                     auditCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = DateTime.UtcNow });
-                    
+                    auditCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)certInfo?.Issuer ?? DBNull.Value });
+                    auditCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = (object?)certInfo?.ExpiryUtc ?? DBNull.Value });
+                    auditCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)certInfo?.TlsVersion ?? DBNull.Value });
+
                     await auditCommand.ExecuteNonQueryAsync(stoppingToken);
 
                     if (target.CurrentSecurityGrade != 'U' && securityGrade > target.CurrentSecurityGrade)
                     {
                         await alertManager.ProcessSecurityAlertAsync(target, securityGrade, webhookUrl, stoppingToken);
+                    }
+
+                    if (certInfo is not null && certInfo.ExpiryUtc <= DateTime.UtcNow.AddDays(14))
+                    {
+                        await alertManager.ProcessSslExpiryAlertAsync(target, certInfo.ExpiryUtc, webhookUrl, stoppingToken);
                     }
                 }
 
@@ -255,7 +279,7 @@ public class WatcherEngine(
         }
     }
 
-    private static char CalculateSecurityGrade(Dictionary<string, string> headers)
+    private static char CalculateSecurityGrade(Dictionary<string, string> headers, CertInfo? cert)
     {
         int score = 0;
 
@@ -264,13 +288,100 @@ public class WatcherEngine(
         if (headers.ContainsKey("X-Frame-Options")) score++;
         if (headers.ContainsKey("X-Content-Type-Options")) score++;
 
+        // Certificate present, valid, and not expiring within 14 days.
+        if (cert is not null && cert.ExpiryUtc > DateTime.UtcNow.AddDays(14)) score++;
+        // Modern TLS (1.2 or 1.3); plain-HTTP and deprecated TLS lose this point.
+        if (cert is not null && cert.TlsVersion is "TLS 1.2" or "TLS 1.3") score++;
+
+        // ponytail: 6-signal -> A-F bands are a tuning knob; adjust thresholds as grading policy evolves.
         return score switch
         {
-            4 => 'A',
-            3 => 'B',
-            2 => 'C',
-            1 => 'D',
+            6 => 'A',
+            5 => 'B',
+            4 => 'C',
+            3 => 'D',
+            2 => 'E',
             _ => 'F'
         };
     }
+
+    private sealed record CertInfo(string Issuer, DateTime ExpiryUtc, string TlsVersion, long HandshakeMs);
+
+    // Opens a raw TLS connection to read the server certificate. The validation callback accepts all
+    // certificates on purpose: a monitor must inspect expired/invalid certs to grade them, rather than
+    // refuse the handshake. This is scoped to this probe only, not general outbound TLS.
+    private static async Task<CertInfo?> InspectCertificateAsync(string url, CancellationToken stoppingToken)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            !uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var host = uri.Host;
+        var port = uri.Port > 0 ? uri.Port : 443;
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
+            var ct = timeoutCts.Token;
+
+            using var tcpClient = new TcpClient();
+            await tcpClient.ConnectAsync(host, port, ct);
+
+            await using var sslStream = new SslStream(tcpClient.GetStream(), leaveInnerStreamOpen: false);
+
+            var stopwatch = Stopwatch.StartNew();
+            await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            {
+                TargetHost = host,
+                RemoteCertificateValidationCallback = (_, _, _, _) => true
+            }, ct);
+            stopwatch.Stop();
+
+            if (sslStream.RemoteCertificate is not X509Certificate2 cert)
+            {
+                return null;
+            }
+
+            return new CertInfo(
+                ParseIssuer(cert.Issuer),
+                cert.NotAfter.ToUniversalTime(),
+                MapTlsVersion(sslStream.SslProtocol),
+                stopwatch.ElapsedMilliseconds);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Distinguished name like "CN=R3, O=Let's Encrypt, C=US" -> prefer Organization, fall back to CN.
+    private static string ParseIssuer(string distinguishedName)
+    {
+        foreach (var prefix in (ReadOnlySpan<string>)["O=", "CN="])
+        {
+            foreach (var part in distinguishedName.Split(','))
+            {
+                var trimmed = part.Trim();
+                if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return trimmed[prefix.Length..].Trim();
+                }
+            }
+        }
+        return distinguishedName;
+    }
+
+    private static string MapTlsVersion(SslProtocols protocol) => protocol switch
+    {
+        SslProtocols.Tls13 => "TLS 1.3",
+        SslProtocols.Tls12 => "TLS 1.2",
+#pragma warning disable SYSLIB0039
+        SslProtocols.Tls11 => "TLS 1.1",
+        SslProtocols.Tls => "TLS 1.0",
+#pragma warning restore SYSLIB0039
+        _ => protocol.ToString()
+    };
 }

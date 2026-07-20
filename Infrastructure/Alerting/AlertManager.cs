@@ -91,6 +91,72 @@ public class AlertManager(
         await DispatchResendAlertAsync(target, newGrade, stoppingToken);
     }
 
+    public async Task ProcessSslExpiryAlertAsync(MonitorTarget target, DateTime expiryUtc, string? webhookUrl, CancellationToken stoppingToken)
+    {
+        // Fingerprint on the cert's expiry month so a given certificate alerts once, not every probe.
+        // A renewed cert has a new ExpiryUtc -> new hash -> a fresh alert.
+        var hash = ComputeHash($"{target.Id}:SslExpiry:{expiryUtc:yyyy-MM}");
+
+        if (_activeIncidents.ContainsKey(hash))
+        {
+            return;
+        }
+
+        _activeIncidents.TryAdd(hash, DateTime.UtcNow);
+
+        using var scope = scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<KindleDbContext>();
+
+        dbContext.AlertIncidents.Add(new AlertIncident
+        {
+            MonitorId = target.Id,
+            IncidentHash = hash,
+            IncidentType = "SslExpiry",
+            IsResolved = false
+        });
+        await dbContext.SaveChangesAsync(stoppingToken);
+
+        var daysLeft = (int)Math.Floor((expiryUtc - DateTime.UtcNow).TotalDays);
+        var urgency = daysLeft < 0 ? "has EXPIRED" : $"expires in {daysLeft} day(s)";
+
+        await DispatchSslExpiryDiscordAsync(target, urgency, expiryUtc, webhookUrl, stoppingToken);
+        await DispatchSslExpiryEmailAsync(target, urgency, expiryUtc, stoppingToken);
+    }
+
+    private async Task DispatchSslExpiryDiscordAsync(MonitorTarget target, string urgency, DateTime expiryUtc, string? webhookUrl, CancellationToken stoppingToken)
+    {
+        var targetWebhook = webhookUrl ?? configuration["Alerting:DiscordWebhookUrl"];
+        if (string.IsNullOrEmpty(targetWebhook)) return;
+
+        var client = httpClientFactory.CreateClient("DiscordClient");
+        var payload = new DiscordPayload($"SSL certificate for **{target.FriendlyName}** ({target.Url}) {urgency} (expiry: {expiryUtc:yyyy-MM-dd}).");
+
+        await client.PostAsJsonAsync(targetWebhook, payload, AppJsonSerializerContext.Default.DiscordPayload, stoppingToken);
+    }
+
+    private async Task DispatchSslExpiryEmailAsync(MonitorTarget target, string urgency, DateTime expiryUtc, CancellationToken stoppingToken)
+    {
+        var apiKey = configuration["Alerting:ResendApiKey"];
+        if (string.IsNullOrEmpty(apiKey)) return;
+
+        var email = target.User?.Email;
+        if (string.IsNullOrEmpty(email)) return;
+
+        var fromEmail = configuration["Alerting:FromEmail"] ?? "onboarding@resend.dev";
+
+        var client = httpClientFactory.CreateClient("ResendClient");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+        var payload = new ResendPayload(
+            fromEmail,
+            [email],
+            $"SSL Certificate Expiry: {target.FriendlyName}",
+            $"<p>The SSL certificate for <strong>{target.FriendlyName}</strong> ({target.Url}) {urgency}.</p><p>Expiry date: <strong>{expiryUtc:yyyy-MM-dd}</strong>.</p>"
+        );
+
+        await client.PostAsJsonAsync("https://api.resend.com/emails", payload, AppJsonSerializerContext.Default.ResendPayload, stoppingToken);
+    }
+
     private async Task DispatchDiscordAlertAsync(MonitorTarget target, UptimeStatus status, string? webhookUrl, CancellationToken stoppingToken)
     {
         var targetWebhook = webhookUrl ?? configuration["Alerting:DiscordWebhookUrl"];

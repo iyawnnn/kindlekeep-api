@@ -25,6 +25,16 @@ builder.Services.AddHttpClient("WatcherClient", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.Add("User-Agent", "KindleKeep-Sentinel/1.0");
+})
+.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    // A monitor must still reach sites with expired/invalid certs to report on them: an expired
+    // cert should read as "up but graded F", not a misleading "down". Certificate quality is judged
+    // by WatcherEngine's own inspection/grade, not by refusing the probe. Scoped to this client only.
+    SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+    {
+        RemoteCertificateValidationCallback = (_, _, _, _) => true
+    }
 });
 
 builder.Services.AddHttpClient("DiscordClient", client =>

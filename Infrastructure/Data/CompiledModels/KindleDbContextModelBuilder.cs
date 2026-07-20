@@ -12,7 +12,7 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
     public partial class KindleDbContextModel
     {
         private KindleDbContextModel()
-            : base(skipDetectChanges: false, modelId: new Guid("61c6b1c8-38a6-48c7-9b1b-53d229b00fbf"), entityTypeCount: 5)
+            : base(skipDetectChanges: false, modelId: new Guid("53422481-e923-4b7c-a116-ce4886dbbba0"), entityTypeCount: 5)
         {
         }
 

@@ -15,6 +15,7 @@ appsettings.Development.json
 # --- IDE & System Files ---
 .vs/
 .vscode/
+.claude/settings.local.json
 *.user
 *.userosscache
 *.sln.docstates

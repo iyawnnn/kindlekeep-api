@@ -158,7 +158,7 @@ namespace KindleKeep.Api.API.Endpoints
                 await using var command = connection.CreateCommand();
                 
                 command.CommandText = @"
-                    SELECT sa.""HasCsp"", sa.""HasHsts"", sa.""HasXfo"", sa.""HasNosniff"", sa.""SslIssuer"", sa.""SslExpiryAt"", sa.""RawHeaders""
+                    SELECT sa.""HasCsp"", sa.""HasHsts"", sa.""HasXfo"", sa.""HasNosniff"", sa.""SslIssuer"", sa.""SslExpiryAt"", sa.""RawHeaders"", sa.""TlsVersion""
                     FROM ""SecurityAudits"" sa
                     INNER JOIN ""MonitorTargets"" mt ON sa.""MonitorId"" = mt.""Id""
                     WHERE mt.""Id"" = $1 AND mt.""UserId"" = $2
@@ -182,7 +182,8 @@ namespace KindleKeep.Api.API.Endpoints
                     reader.GetBoolean(3),
                     reader.IsDBNull(4) ? null : reader.GetString(4),
                     reader.IsDBNull(5) ? null : reader.GetDateTime(5),
-                    reader.IsDBNull(6) ? null : reader.GetString(6)
+                    reader.IsDBNull(6) ? null : reader.GetString(6),
+                    reader.IsDBNull(7) ? null : reader.GetString(7)
                 );
 
                 return Results.Ok(response);

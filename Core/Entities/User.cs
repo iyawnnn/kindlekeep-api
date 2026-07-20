@@ -5,7 +5,7 @@ using KindleKeep.Api.Core.Enums;
 
 namespace KindleKeep.Api.Core.Entities;
 
-public record User
+public class User
 {
     public Guid Id { get; set; }
     public required string ExternalId { get; set; }

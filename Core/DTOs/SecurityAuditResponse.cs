@@ -11,5 +11,6 @@ public record SecurityAuditResponse(
     [property: JsonPropertyName("hasNosniff")] bool HasNosniff,
     [property: JsonPropertyName("sslIssuer")] string? SslIssuer,
     [property: JsonPropertyName("sslExpiryAt")] DateTime? SslExpiryAt,
-    [property: JsonPropertyName("rawHeaders")] string? RawHeaders
+    [property: JsonPropertyName("rawHeaders")] string? RawHeaders,
+    [property: JsonPropertyName("tlsVersion")] string? TlsVersion
 );
