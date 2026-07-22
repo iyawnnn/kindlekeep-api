@@ -23,10 +23,10 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 "KindleKeep.Api.Core.Entities.MonitorTarget",
                 typeof(MonitorTarget),
                 baseEntityType,
-                propertyCount: 13,
+                propertyCount: 16,
                 navigationCount: 1,
                 foreignKeyCount: 1,
-                unnamedIndexCount: 1,
+                unnamedIndexCount: 2,
                 keyCount: 1);
 
             var id = runtimeEntityType.AddProperty(
@@ -86,6 +86,14 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 sentinel: false);
             isActive.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
 
+            var isPublic = runtimeEntityType.AddProperty(
+                "IsPublic",
+                typeof(bool),
+                propertyInfo: typeof(MonitorTarget).GetProperty("IsPublic", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(MonitorTarget).GetField("<IsPublic>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                sentinel: false);
+            isPublic.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
             var lastAuditHash = runtimeEntityType.AddProperty(
                 "LastAuditHash",
                 typeof(string),
@@ -93,6 +101,22 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 fieldInfo: typeof(MonitorTarget).GetField("<LastAuditHash>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
                 nullable: true);
             lastAuditHash.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
+            var lastCheckedAt = runtimeEntityType.AddProperty(
+                "LastCheckedAt",
+                typeof(DateTime?),
+                propertyInfo: typeof(MonitorTarget).GetProperty("LastCheckedAt", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(MonitorTarget).GetField("<LastCheckedAt>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                nullable: true);
+            lastCheckedAt.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
+            var publicSlug = runtimeEntityType.AddProperty(
+                "PublicSlug",
+                typeof(string),
+                propertyInfo: typeof(MonitorTarget).GetProperty("PublicSlug", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(MonitorTarget).GetField("<PublicSlug>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                nullable: true);
+            publicSlug.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
 
             var requestHeaders = runtimeEntityType.AddProperty(
                 "RequestHeaders",
@@ -138,6 +162,10 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
             runtimeEntityType.SetPrimaryKey(key);
 
             var index = runtimeEntityType.AddIndex(
+                new[] { publicSlug },
+                unique: true);
+
+            var index0 = runtimeEntityType.AddIndex(
                 new[] { userId });
 
             return runtimeEntityType;

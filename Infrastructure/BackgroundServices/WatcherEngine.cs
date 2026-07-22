@@ -59,12 +59,15 @@ public class WatcherEngine(
         {
             await using var command = connection.CreateCommand();
             command.CommandText = @"
-                SELECT mt.""Id"", mt.""Url"", mt.""FriendlyName"", mt.""CurrentUptimeStatus"", 
-                       mt.""CurrentSecurityGrade"", mt.""IsActive"", mt.""UserId"", u.""DiscordWebhookUrl"", mt.""FailureCount"" 
+                SELECT mt.""Id"", mt.""Url"", mt.""FriendlyName"", mt.""CurrentUptimeStatus"",
+                       mt.""CurrentSecurityGrade"", mt.""IsActive"", mt.""UserId"", u.""DiscordWebhookUrl"", mt.""FailureCount"",
+                       mt.""RequestHeaders"", mt.""RequestTimeout""
                 FROM ""MonitorTargets"" mt
                 INNER JOIN ""Users"" u ON mt.""UserId"" = u.""Id""
-                WHERE mt.""IsActive"" = true AND mt.""CurrentUptimeStatus"" != 3";
-            
+                WHERE mt.""IsActive"" = true AND mt.""CurrentUptimeStatus"" != 3
+                  AND (mt.""LastCheckedAt"" IS NULL
+                       OR NOW() >= mt.""LastCheckedAt"" + make_interval(mins => mt.""IntervalMinutes""))";
+
             await using var reader = await command.ExecuteReaderAsync(stoppingToken);
             while (await reader.ReadAsync(stoppingToken))
             {
@@ -77,9 +80,11 @@ public class WatcherEngine(
                     CurrentSecurityGrade = reader.GetString(4)[0],
                     IsActive = reader.GetBoolean(5),
                     UserId = reader.GetGuid(6),
-                    FailureCount = reader.GetInt32(8)
+                    FailureCount = reader.GetInt32(8),
+                    RequestHeaders = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    RequestTimeout = reader.GetInt32(10)
                 };
-                
+
                 var webhookUrl = reader.IsDBNull(7) ? null : reader.GetString(7);
                 activeTargets.Add((target, webhookUrl));
             }
@@ -96,15 +101,30 @@ public class WatcherEngine(
             long ttfb = 0;
             Dictionary<string, string> headersDict = [];
 
+            Dictionary<string, string>? customHeaders = target.RequestHeaders is null
+                ? null
+                : JsonSerializer.Deserialize(target.RequestHeaders, AppJsonSerializerContext.Default.DictionaryStringString);
+
             for (int attempt = 1; attempt <= 3; attempt++)
             {
                 stopwatch.Restart();
                 await StreamLogAsync(target.Id.ToString(), $"> [INIT] Attempting connection to {target.Url} (Attempt {attempt})...", stoppingToken);
-                
+
                 try
                 {
                     using var request = new HttpRequestMessage(HttpMethod.Get, target.Url);
-                    using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, stoppingToken);
+                    if (customHeaders is not null)
+                    {
+                        foreach (var (key, value) in customHeaders)
+                        {
+                            request.Headers.TryAddWithoutValidation(key, value);
+                        }
+                    }
+
+                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(target.RequestTimeout));
+
+                    using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
 
                     stopwatch.Stop();
                     ttfb = stopwatch.ElapsedMilliseconds;
@@ -251,15 +271,16 @@ public class WatcherEngine(
                     SET ""CurrentUptimeStatus"" = $1,
                         ""CurrentSecurityGrade"" = $2,
                         ""UpdatedAt"" = $3,
-                        ""FailureCount"" = $5
+                        ""FailureCount"" = $5,
+                        ""LastCheckedAt"" = $3
                     WHERE ""Id"" = $4";
-                
+
                 updateCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = (int)status });
                 updateCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = securityGrade.ToString() });
                 updateCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = DateTime.UtcNow });
                 updateCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = target.Id });
                 updateCommand.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = target.FailureCount });
-                
+
                 await updateCommand.ExecuteNonQueryAsync(stoppingToken);
             }
 

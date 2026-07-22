@@ -14,5 +14,9 @@ public class KindleDbContext(DbContextOptions<KindleDbContext> options) : DbCont
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<MonitorTarget>()
+            .HasIndex(m => m.PublicSlug)
+            .IsUnique();
     }
 }

@@ -3,6 +3,7 @@ using System;
 using KindleKeep.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace kindlekeep_api.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(KindleDbContext))]
-    partial class KindleDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260720225340_AddLastCheckedAtToMonitorTargets")]
+    partial class AddLastCheckedAtToMonitorTargets
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -80,17 +83,11 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
-                    b.Property<bool>("IsPublic")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("LastAuditHash")
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("LastCheckedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PublicSlug")
-                        .HasColumnType("text");
 
                     b.Property<string>("RequestHeaders")
                         .HasColumnType("text");
@@ -109,9 +106,6 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("PublicSlug")
-                        .IsUnique();
 
                     b.HasIndex("UserId");
 

@@ -23,7 +23,9 @@ builder.Services.AddHttpClient("GitHub", client =>
 
 builder.Services.AddHttpClient("WatcherClient", client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(30);
+    // Ceiling for per-monitor RequestTimeout (validated/clamped to 1-60s in MonitorEndpoints);
+    // must be >= that clamp or a user-configured timeout gets silently truncated here instead.
+    client.Timeout = TimeSpan.FromSeconds(60);
     client.DefaultRequestHeaders.Add("User-Agent", "KindleKeep-Sentinel/1.0");
 })
 .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
@@ -169,6 +171,7 @@ app.MapUserEndpoints();
 app.MapMonitorEndpoints();
 app.MapIncidentEndpoints();
 app.MapVaultEndpoints();
+app.MapPublicEndpoints();
 app.MapHub<PulseHub>("/hubs/pulse");
 
 app.Run();
@@ -208,6 +211,12 @@ app.Run();
 [JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.VaultTargetResponse))]
 [JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.VaultTargetResponse>))]
 [JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.VaultAuditDetail))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.UpdateMonitorRequest))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.MonitorDetailResponse))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.SetPublicStatusRequest))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.PublicStatusResponse))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.PublicMonitorResponse))]
+[JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.UptimeLogResponse>))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext
 {
 }

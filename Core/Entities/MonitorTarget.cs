@@ -22,6 +22,11 @@ public record MonitorTarget
     public char CurrentSecurityGrade { get; set; } = 'U'; // 'U' stands for Untested
     public int FailureCount { get; set; } = 0;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastCheckedAt { get; set; }
+
+    // Public status page opt-in
+    public bool IsPublic { get; set; } = false;
+    public string? PublicSlug { get; set; }
 
     // Navigation property
     public User? User { get; init; }
