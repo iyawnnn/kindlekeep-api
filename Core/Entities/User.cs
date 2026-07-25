@@ -17,6 +17,9 @@ public class User
 
     public string? DiscordWebhookUrl { get; set; }
     public bool EnableEmailNotifications { get; set; } = true;
+    public string? SlackWebhookUrl { get; set; }
+    public bool DigestEnabled { get; set; } = false;
+    public string? GithubWebhookSecret { get; set; }
 
     [JsonIgnore]
     public ICollection<MonitorTarget> Monitors { get; set; } = new List<MonitorTarget>();

@@ -12,24 +12,27 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
     public partial class KindleDbContextModel
     {
         private KindleDbContextModel()
-            : base(skipDetectChanges: false, modelId: new Guid("4432a553-0c51-4d9e-a11b-3611238bcaf7"), entityTypeCount: 5)
+            : base(skipDetectChanges: false, modelId: new Guid("15630e13-fd1f-444f-b5e9-94ad2620a6b4"), entityTypeCount: 6)
         {
         }
 
         partial void Initialize()
         {
             var alertIncident = AlertIncidentEntityType.Create(this);
+            var apiKey = ApiKeyEntityType.Create(this);
             var monitorTarget = MonitorTargetEntityType.Create(this);
             var securityAudit = SecurityAuditEntityType.Create(this);
             var uptimeLog = UptimeLogEntityType.Create(this);
             var user = UserEntityType.Create(this);
 
             AlertIncidentEntityType.CreateForeignKey1(alertIncident, monitorTarget);
+            ApiKeyEntityType.CreateForeignKey1(apiKey, user);
             MonitorTargetEntityType.CreateForeignKey1(monitorTarget, user);
             SecurityAuditEntityType.CreateForeignKey1(securityAudit, monitorTarget);
             UptimeLogEntityType.CreateForeignKey1(uptimeLog, monitorTarget);
 
             AlertIncidentEntityType.CreateAnnotations(alertIncident);
+            ApiKeyEntityType.CreateAnnotations(apiKey);
             MonitorTargetEntityType.CreateAnnotations(monitorTarget);
             SecurityAuditEntityType.CreateAnnotations(securityAudit);
             UptimeLogEntityType.CreateAnnotations(uptimeLog);

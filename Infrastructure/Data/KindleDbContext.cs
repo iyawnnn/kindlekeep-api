@@ -10,6 +10,7 @@ public class KindleDbContext(DbContextOptions<KindleDbContext> options) : DbCont
     public DbSet<UptimeLog> UptimeLogs => Set<UptimeLog>();
     public DbSet<SecurityAudit> SecurityAudits => Set<SecurityAudit>();
     public DbSet<AlertIncident> AlertIncidents => Set<AlertIncident>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

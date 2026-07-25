@@ -48,22 +48,50 @@ public class WatcherEngine(
         await hubContext.Clients.Group(monitorId).SendAsync("ReceiveLogStream", message, stoppingToken);
     }
 
+    private const string TargetSelectSql = @"
+        SELECT mt.""Id"", mt.""Url"", mt.""FriendlyName"", mt.""CurrentUptimeStatus"",
+               mt.""CurrentSecurityGrade"", mt.""IsActive"", mt.""UserId"", u.""DiscordWebhookUrl"", mt.""FailureCount"",
+               mt.""RequestHeaders"", mt.""RequestTimeout"", u.""Email"", u.""SlackWebhookUrl"", u.""DigestEnabled""
+        FROM ""MonitorTargets"" mt
+        INNER JOIN ""Users"" u ON mt.""UserId"" = u.""Id""
+    ";
+
+    private static (MonitorTarget Target, AlertRecipient Recipient) ReadTargetRow(NpgsqlDataReader reader)
+    {
+        var target = new MonitorTarget
+        {
+            Id = reader.GetGuid(0),
+            Url = reader.GetString(1),
+            FriendlyName = reader.GetString(2),
+            CurrentUptimeStatus = (UptimeStatus)reader.GetInt32(3),
+            CurrentSecurityGrade = reader.GetString(4)[0],
+            IsActive = reader.GetBoolean(5),
+            UserId = reader.GetGuid(6),
+            FailureCount = reader.GetInt32(8),
+            RequestHeaders = reader.IsDBNull(9) ? null : reader.GetString(9),
+            RequestTimeout = reader.GetInt32(10)
+        };
+
+        var recipient = new AlertRecipient(
+            reader.IsDBNull(11) ? null : reader.GetString(11),
+            reader.IsDBNull(7) ? null : reader.GetString(7),
+            reader.IsDBNull(12) ? null : reader.GetString(12),
+            reader.GetBoolean(13));
+
+        return (target, recipient);
+    }
+
     private async Task ProcessTargetsAsync(CancellationToken stoppingToken)
     {
         using var scope = scopeFactory.CreateScope();
         var dataSource = scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>();
 
-        var activeTargets = new List<(MonitorTarget Target, string? WebhookUrl)>();
+        var activeTargets = new List<(MonitorTarget Target, AlertRecipient Recipient)>();
 
         await using (var connection = await dataSource.OpenConnectionAsync(stoppingToken))
         {
             await using var command = connection.CreateCommand();
-            command.CommandText = @"
-                SELECT mt.""Id"", mt.""Url"", mt.""FriendlyName"", mt.""CurrentUptimeStatus"",
-                       mt.""CurrentSecurityGrade"", mt.""IsActive"", mt.""UserId"", u.""DiscordWebhookUrl"", mt.""FailureCount"",
-                       mt.""RequestHeaders"", mt.""RequestTimeout""
-                FROM ""MonitorTargets"" mt
-                INNER JOIN ""Users"" u ON mt.""UserId"" = u.""Id""
+            command.CommandText = TargetSelectSql + @"
                 WHERE mt.""IsActive"" = true AND mt.""CurrentUptimeStatus"" != 3
                   AND (mt.""LastCheckedAt"" IS NULL
                        OR NOW() >= mt.""LastCheckedAt"" + make_interval(mins => mt.""IntervalMinutes""))";
@@ -71,30 +99,51 @@ public class WatcherEngine(
             await using var reader = await command.ExecuteReaderAsync(stoppingToken);
             while (await reader.ReadAsync(stoppingToken))
             {
-                var target = new MonitorTarget
-                {
-                    Id = reader.GetGuid(0),
-                    Url = reader.GetString(1),
-                    FriendlyName = reader.GetString(2),
-                    CurrentUptimeStatus = (UptimeStatus)reader.GetInt32(3),
-                    CurrentSecurityGrade = reader.GetString(4)[0],
-                    IsActive = reader.GetBoolean(5),
-                    UserId = reader.GetGuid(6),
-                    FailureCount = reader.GetInt32(8),
-                    RequestHeaders = reader.IsDBNull(9) ? null : reader.GetString(9),
-                    RequestTimeout = reader.GetInt32(10)
-                };
-
-                var webhookUrl = reader.IsDBNull(7) ? null : reader.GetString(7);
-                activeTargets.Add((target, webhookUrl));
+                activeTargets.Add(ReadTargetRow(reader));
             }
         }
 
         var client = httpClientFactory.CreateClient("WatcherClient");
 
-        foreach (var (target, webhookUrl) in activeTargets)
+        foreach (var (target, recipient) in activeTargets)
         {
-            var stopwatch = new Stopwatch();
+            await ProbeAsync(target, recipient, dataSource, client, stoppingToken);
+        }
+    }
+
+    // Bypasses the normal per-interval gate for a single monitor - used by the manual API-key
+    // trigger and GitHub webhook endpoints (DevEndpoints.cs) to force an immediate out-of-band probe.
+    // Returns false if the monitor doesn't exist or is paused (IsActive = false).
+    public async Task<bool> TriggerImmediateProbeAsync(Guid monitorId, CancellationToken stoppingToken)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var dataSource = scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>();
+
+        (MonitorTarget Target, AlertRecipient Recipient)? found = null;
+
+        await using (var connection = await dataSource.OpenConnectionAsync(stoppingToken))
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = TargetSelectSql + @" WHERE mt.""Id"" = $1 AND mt.""IsActive"" = true";
+            command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = monitorId });
+
+            await using var reader = await command.ExecuteReaderAsync(stoppingToken);
+            if (await reader.ReadAsync(stoppingToken))
+            {
+                found = ReadTargetRow(reader);
+            }
+        }
+
+        if (found is null) return false;
+
+        var client = httpClientFactory.CreateClient("WatcherClient");
+        await ProbeAsync(found.Value.Target, found.Value.Recipient, dataSource, client, stoppingToken);
+        return true;
+    }
+
+    private async Task ProbeAsync(MonitorTarget target, AlertRecipient recipient, NpgsqlDataSource dataSource, HttpClient client, CancellationToken stoppingToken)
+    {
+        var stopwatch = new Stopwatch();
             var status = UptimeStatus.Down;
             string? errorMessage = null;
             int? statusCode = null;
@@ -256,12 +305,12 @@ public class WatcherEngine(
 
                     if (target.CurrentSecurityGrade != 'U' && securityGrade > target.CurrentSecurityGrade)
                     {
-                        await alertManager.ProcessSecurityAlertAsync(target, securityGrade, webhookUrl, stoppingToken);
+                        await alertManager.ProcessSecurityAlertAsync(target, securityGrade, headersDict, recipient, stoppingToken);
                     }
 
                     if (certInfo is not null && certInfo.ExpiryUtc <= DateTime.UtcNow.AddDays(14))
                     {
-                        await alertManager.ProcessSslExpiryAlertAsync(target, certInfo.ExpiryUtc, webhookUrl, stoppingToken);
+                        await alertManager.ProcessSslExpiryAlertAsync(target, certInfo.ExpiryUtc, recipient, stoppingToken);
                     }
                 }
 
@@ -292,12 +341,11 @@ public class WatcherEngine(
 
             if (uptimeStateChanged && status != UptimeStatus.Quarantined)
             {
-                await alertManager.ProcessUptimeAlertAsync(target, status, webhookUrl, stoppingToken);
+                await alertManager.ProcessUptimeAlertAsync(target, status, recipient, stoppingToken);
             }
 
-            var update = new PulseUpdate(target.Id, status, latency);
-            await hubContext.Clients.Group(target.UserId.ToString()).SendAsync("ReceivePulse", update, stoppingToken);
-        }
+        var update = new PulseUpdate(target.Id, status, latency);
+        await hubContext.Clients.Group(target.UserId.ToString()).SendAsync("ReceivePulse", update, stoppingToken);
     }
 
     private static char CalculateSecurityGrade(Dictionary<string, string> headers, CertInfo? cert)

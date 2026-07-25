@@ -21,7 +21,7 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 "KindleKeep.Api.Core.Entities.User",
                 typeof(User),
                 baseEntityType,
-                propertyCount: 9,
+                propertyCount: 12,
                 navigationCount: 1,
                 keyCount: 1);
 
@@ -59,6 +59,14 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 sentinel: new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified));
             createdAt.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
 
+            var digestEnabled = runtimeEntityType.AddProperty(
+                "DigestEnabled",
+                typeof(bool),
+                propertyInfo: typeof(User).GetProperty("DigestEnabled", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(User).GetField("<DigestEnabled>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                sentinel: false);
+            digestEnabled.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
             var discordWebhookUrl = runtimeEntityType.AddProperty(
                 "DiscordWebhookUrl",
                 typeof(string),
@@ -95,6 +103,22 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 propertyInfo: typeof(User).GetProperty("ExternalId", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
                 fieldInfo: typeof(User).GetField("<ExternalId>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly));
             externalId.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
+            var githubWebhookSecret = runtimeEntityType.AddProperty(
+                "GithubWebhookSecret",
+                typeof(string),
+                propertyInfo: typeof(User).GetProperty("GithubWebhookSecret", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(User).GetField("<GithubWebhookSecret>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                nullable: true);
+            githubWebhookSecret.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
+            var slackWebhookUrl = runtimeEntityType.AddProperty(
+                "SlackWebhookUrl",
+                typeof(string),
+                propertyInfo: typeof(User).GetProperty("SlackWebhookUrl", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(User).GetField("<SlackWebhookUrl>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                nullable: true);
+            slackWebhookUrl.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
 
             var key = runtimeEntityType.AddKey(
                 new[] { id });

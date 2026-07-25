@@ -3,6 +3,7 @@ using System;
 using KindleKeep.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace kindlekeep_api.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(KindleDbContext))]
-    partial class KindleDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260725011817_AddSlackAndDigestSettings")]
+    partial class AddSlackAndDigestSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -53,36 +56,6 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
                     b.HasIndex("MonitorId");
 
                     b.ToTable("AlertIncidents");
-                });
-
-            modelBuilder.Entity("KindleKeep.Api.Core.Entities.ApiKey", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("KeyHash")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("LastUsedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("ApiKeys");
                 });
 
             modelBuilder.Entity("KindleKeep.Api.Core.Entities.MonitorTarget", b =>
@@ -260,9 +233,6 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("GithubWebhookSecret")
-                        .HasColumnType("text");
-
                     b.Property<string>("SlackWebhookUrl")
                         .HasColumnType("text");
 
@@ -280,17 +250,6 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Monitor");
-                });
-
-            modelBuilder.Entity("KindleKeep.Api.Core.Entities.ApiKey", b =>
-                {
-                    b.HasOne("KindleKeep.Api.Core.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("KindleKeep.Api.Core.Entities.MonitorTarget", b =>

@@ -44,6 +44,11 @@ builder.Services.AddHttpClient("DiscordClient", client =>
     client.Timeout = TimeSpan.FromSeconds(10);
 });
 
+builder.Services.AddHttpClient("SlackClient", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 builder.Services.AddHttpClient("ResendClient", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
@@ -100,8 +105,12 @@ builder.Services.AddDbContextPool<KindleDbContext>(options =>
 
 builder.Services.AddSingleton<KindleKeep.Api.Infrastructure.Identity.TokenService>();
 builder.Services.AddSingleton<KindleKeep.Api.Infrastructure.Alerting.AlertManager>();
-builder.Services.AddHostedService<KindleKeep.Api.Infrastructure.BackgroundServices.WatcherEngine>();
+// Registered as a singleton (not just AddHostedService) so DevEndpoints can inject WatcherEngine
+// directly to call TriggerImmediateProbeAsync from the manual-trigger and GitHub webhook endpoints.
+builder.Services.AddSingleton<KindleKeep.Api.Infrastructure.BackgroundServices.WatcherEngine>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<KindleKeep.Api.Infrastructure.BackgroundServices.WatcherEngine>());
 builder.Services.AddHostedService<KindleKeep.Api.Infrastructure.BackgroundServices.PruningService>();
+builder.Services.AddHostedService<KindleKeep.Api.Infrastructure.BackgroundServices.DigestService>();
 builder.Services.AddExceptionHandler<KindleKeep.Api.Infrastructure.Exceptions.GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
@@ -172,6 +181,7 @@ app.MapMonitorEndpoints();
 app.MapIncidentEndpoints();
 app.MapVaultEndpoints();
 app.MapPublicEndpoints();
+app.MapDevEndpoints();
 app.MapHub<PulseHub>("/hubs/pulse");
 
 app.Run();
@@ -191,6 +201,7 @@ app.Run();
 [JsonSerializable(typeof(PulseUpdate))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(KindleKeep.Api.Infrastructure.Alerting.DiscordPayload))]
+[JsonSerializable(typeof(KindleKeep.Api.Infrastructure.Alerting.SlackPayload))]
 [JsonSerializable(typeof(KindleKeep.Api.Infrastructure.Alerting.ResendPayload))]
 [JsonSerializable(typeof(Microsoft.AspNetCore.Mvc.ProblemDetails))]
 [JsonSerializable(typeof(UserProfileResponse))]
@@ -217,6 +228,17 @@ app.Run();
 [JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.PublicStatusResponse))]
 [JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.PublicMonitorResponse))]
 [JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.UptimeLogResponse>))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.UserDataExportResponse))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.CreateApiKeyRequest))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.ApiKeyResponse))]
+[JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.ApiKeyResponse>))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.ApiKeyCreatedResponse))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.WebhookSecretResponse))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.TriggerProbeResponse))]
+[JsonSerializable(typeof(System.Collections.Generic.List<MonitorTarget>))]
+[JsonSerializable(typeof(System.Collections.Generic.List<UptimeLog>))]
+[JsonSerializable(typeof(System.Collections.Generic.List<SecurityAudit>))]
+[JsonSerializable(typeof(System.Collections.Generic.List<AlertIncident>))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext
 {
 }
