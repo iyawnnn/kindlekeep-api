@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
@@ -18,16 +19,16 @@ public static class AuthEndpoints
 
         group.MapGet("/login/github", (IConfiguration configuration, HttpContext context) =>
         {
-            var clientId = configuration["Authentication:GitHub:ClientId"] 
+            var clientId = configuration["Authentication:GitHub:ClientId"]
                 ?? throw new InvalidOperationException("GitHub ClientId is missing.");
 
-            var redirectUri = $"http://localhost:5247/api/auth/callback/github";
+            var redirectUri = $"{GetPublicApiUrl(configuration)}/api/auth/callback/github";
             var queryParams = new Dictionary<string, string?>
             {
                 { "client_id", clientId },
                 { "redirect_uri", redirectUri },
                 { "scope", "read:user user:email" },
-                { "state", "stateless-csrf-placeholder" }
+                { "state", IssueOAuthState(context) }
             };
 
             return TypedResults.Redirect(QueryHelpers.AddQueryString("https://github.com/login/oauth/authorize", queryParams));
@@ -43,24 +44,24 @@ public static class AuthEndpoints
             HttpContext context) =>
         {
             return await ProcessOAuthCallbackAsync(
-                code, AuthProvider.GitHub, "Authentication:GitHub",
+                code, state, AuthProvider.GitHub, "Authentication:GitHub",
                 "https://github.com/login/oauth/access_token", "https://api.github.com/user",
                 configuration, httpClientFactory, dataSource, tokenService, context);
         });
 
         group.MapGet("/login/google", (IConfiguration configuration, HttpContext context) =>
         {
-            var clientId = configuration["Authentication:Google:ClientId"] 
+            var clientId = configuration["Authentication:Google:ClientId"]
                 ?? throw new InvalidOperationException("Google ClientId is missing.");
 
-            var redirectUri = $"http://localhost:5247/api/auth/callback/google";
+            var redirectUri = $"{GetPublicApiUrl(configuration)}/api/auth/callback/google";
             var queryParams = new Dictionary<string, string?>
             {
                 { "client_id", clientId },
                 { "redirect_uri", redirectUri },
                 { "response_type", "code" },
                 { "scope", "openid email profile" },
-                { "state", "stateless-csrf-placeholder" }
+                { "state", IssueOAuthState(context) }
             };
 
             return TypedResults.Redirect(QueryHelpers.AddQueryString("https://accounts.google.com/o/oauth2/v2/auth", queryParams));
@@ -76,24 +77,24 @@ public static class AuthEndpoints
             HttpContext context) =>
         {
             return await ProcessOAuthCallbackAsync(
-                code, AuthProvider.Google, "Authentication:Google",
+                code, state, AuthProvider.Google, "Authentication:Google",
                 "https://oauth2.googleapis.com/token", "https://www.googleapis.com/oauth2/v2/userinfo",
                 configuration, httpClientFactory, dataSource, tokenService, context);
         });
 
         group.MapGet("/login/gitlab", (IConfiguration configuration, HttpContext context) =>
         {
-            var clientId = configuration["Authentication:GitLab:ClientId"] 
+            var clientId = configuration["Authentication:GitLab:ClientId"]
                 ?? throw new InvalidOperationException("GitLab ClientId is missing.");
 
-            var redirectUri = $"http://localhost:5247/api/auth/callback/gitlab";
+            var redirectUri = $"{GetPublicApiUrl(configuration)}/api/auth/callback/gitlab";
             var queryParams = new Dictionary<string, string?>
             {
                 { "client_id", clientId },
                 { "redirect_uri", redirectUri },
                 { "response_type", "code" },
                 { "scope", "read_user" },
-                { "state", "stateless-csrf-placeholder" }
+                { "state", IssueOAuthState(context) }
             };
 
             return TypedResults.Redirect(QueryHelpers.AddQueryString("https://gitlab.com/oauth/authorize", queryParams));
@@ -109,7 +110,7 @@ public static class AuthEndpoints
             HttpContext context) =>
         {
             return await ProcessOAuthCallbackAsync(
-                code, AuthProvider.GitLab, "Authentication:GitLab",
+                code, state, AuthProvider.GitLab, "Authentication:GitLab",
                 "https://gitlab.com/oauth/token", "https://gitlab.com/api/v4/user",
                 configuration, httpClientFactory, dataSource, tokenService, context);
         });
@@ -117,8 +118,58 @@ public static class AuthEndpoints
         return endpoints;
     }
 
+    private const string OAuthStateCookieName = "kk_oauth_state";
+
+    // Deliberately NOT the same key as Program.cs's WebHost:Url/KK_WEBHOST_URL, which is Kestrel's own
+    // bind address (e.g. http://0.0.0.0:$PORT behind Render's proxy) - that's not reachable from the
+    // public internet, so GitHub/Google/GitLab could never redirect back to it. This is the externally
+    // reachable URL of this API, only used to build the redirect_uri OAuth providers call back to.
+    private static string GetPublicApiUrl(IConfiguration configuration) =>
+        configuration["PublicApiUrl"] ?? Environment.GetEnvironmentVariable("KK_PUBLIC_API_URL") ?? "http://localhost:5247";
+
+    private static string GetFrontendUrl(IConfiguration configuration) =>
+        configuration["Frontend:Url"] ?? Environment.GetEnvironmentVariable("KK_FRONTEND_URL") ?? "http://localhost:5173";
+
+    // Generates a random per-attempt CSRF token, stashes it in a short-lived cookie the browser will
+    // echo back on the callback redirect, and returns it for use as the OAuth `state` param.
+    private static string IssueOAuthState(HttpContext context)
+    {
+        var state = RandomNumberGenerator.GetHexString(32);
+
+        context.Response.Cookies.Append(OAuthStateCookieName, state, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Lax,
+            MaxAge = TimeSpan.FromMinutes(10)
+        });
+
+        return state;
+    }
+
+    // Compares the `state` the provider echoed back against the cookie set in IssueOAuthState.
+    // A mismatch means either the cookie expired/was never set, or this callback wasn't initiated
+    // by our own /login redirect (the CSRF case the `state` param exists to catch).
+    private static bool ValidateOAuthState(HttpContext context, string state)
+    {
+        context.Request.Cookies.TryGetValue(OAuthStateCookieName, out var expected);
+        context.Response.Cookies.Delete(OAuthStateCookieName);
+
+        if (string.IsNullOrEmpty(expected) || string.IsNullOrEmpty(state))
+        {
+            return false;
+        }
+
+        var expectedBytes = System.Text.Encoding.UTF8.GetBytes(expected);
+        var actualBytes = System.Text.Encoding.UTF8.GetBytes(state);
+
+        return expectedBytes.Length == actualBytes.Length &&
+            CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes);
+    }
+
     private static async Task<IResult> ProcessOAuthCallbackAsync(
         string code,
+        string state,
         AuthProvider provider,
         string configSection,
         string tokenUrl,
@@ -129,12 +180,17 @@ public static class AuthEndpoints
         TokenService tokenService,
         HttpContext context)
     {
-        var clientId = configuration[$"{configSection}:ClientId"] 
+        if (!ValidateOAuthState(context, state))
+        {
+            return Results.BadRequest("Invalid or expired OAuth state.");
+        }
+
+        var clientId = configuration[$"{configSection}:ClientId"]
             ?? throw new InvalidOperationException($"{provider} ClientId is missing.");
         var clientSecret = configuration[$"{configSection}:ClientSecret"] 
             ?? throw new InvalidOperationException($"{provider} ClientSecret is missing.");
 
-        var redirectUri = $"http://localhost:5247/api/auth/callback/{provider.ToString().ToLower()}";
+        var redirectUri = $"{GetPublicApiUrl(configuration)}/api/auth/callback/{provider.ToString().ToLower()}";
         var client = httpClientFactory.CreateClient(provider.ToString());
 
         var tokenPayload = new Dictionary<string, string>
@@ -243,6 +299,6 @@ public static class AuthEndpoints
 
         var jwtToken = tokenService.GenerateToken(user);
         
-        return Results.Redirect($"http://localhost:5173/auth-callback?token={jwtToken}");
+        return Results.Redirect($"{GetFrontendUrl(configuration)}/auth-callback?token={jwtToken}");
     }
 }

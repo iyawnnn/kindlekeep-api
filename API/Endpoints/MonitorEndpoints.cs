@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using KindleKeep.Api.Core.DTOs;
 using KindleKeep.Api.Core.Enums;
+using KindleKeep.Api.Infrastructure.Security;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -188,15 +189,40 @@ namespace KindleKeep.Api.API.Endpoints
                     return Results.NotFound();
                 }
 
+                bool hasCsp = reader.GetBoolean(0);
+                bool hasHsts = reader.GetBoolean(1);
+                bool hasXfo = reader.GetBoolean(2);
+                bool hasNosniff = reader.GetBoolean(3);
+                string? rawHeaders = reader.IsDBNull(6) ? null : reader.GetString(6);
+
+                string? detectedPlatform = null;
+                string? remediationSnippet = null;
+
+                var missingHeaders = new List<string>();
+                if (!hasCsp) missingHeaders.Add("Content-Security-Policy");
+                if (!hasHsts) missingHeaders.Add("Strict-Transport-Security");
+                if (!hasXfo) missingHeaders.Add("X-Frame-Options");
+                if (!hasNosniff) missingHeaders.Add("X-Content-Type-Options");
+
+                if (missingHeaders.Count > 0 && rawHeaders is not null)
+                {
+                    var headersDict = JsonSerializer.Deserialize(rawHeaders, AppJsonSerializerContext.Default.DictionaryStringString)
+                        ?? [];
+                    detectedPlatform = BlueprintGenerator.DetectPlatform(headersDict);
+                    remediationSnippet = BlueprintGenerator.GenerateSnippet(detectedPlatform, missingHeaders);
+                }
+
                 var response = new SecurityAuditResponse(
-                    reader.GetBoolean(0),
-                    reader.GetBoolean(1),
-                    reader.GetBoolean(2),
-                    reader.GetBoolean(3),
+                    hasCsp,
+                    hasHsts,
+                    hasXfo,
+                    hasNosniff,
                     reader.IsDBNull(4) ? null : reader.GetString(4),
                     reader.IsDBNull(5) ? null : reader.GetDateTime(5),
-                    reader.IsDBNull(6) ? null : reader.GetString(6),
-                    reader.IsDBNull(7) ? null : reader.GetString(7)
+                    rawHeaders,
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    detectedPlatform,
+                    remediationSnippet
                 );
 
                 return Results.Ok(response);

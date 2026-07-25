@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using KindleKeep.Api.Core.DTOs;
 using KindleKeep.Api.Core.Enums;
+using KindleKeep.Api.Infrastructure.Badges;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -81,6 +82,38 @@ namespace KindleKeep.Api.API.Endpoints
 
                 var response = new PublicMonitorResponse(friendlyName, url, status, isActive, updatedAt, history);
                 return Results.Ok(response);
+            });
+
+            group.MapGet("/monitors/{slug}/badge.svg", async (string slug, [FromServices] NpgsqlDataSource dataSource, HttpContext context) =>
+            {
+                await using var connection = await dataSource.OpenConnectionAsync();
+                await using var command = connection.CreateCommand();
+
+                command.CommandText = @"
+                    SELECT ""CurrentUptimeStatus"", ""IsActive""
+                    FROM ""MonitorTargets""
+                    WHERE ""PublicSlug"" = $1 AND ""IsPublic"" = true;";
+                command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = slug });
+
+                string message;
+                string color;
+
+                await using (var reader = await command.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync())
+                    {
+                        (message, color) = BadgeGenerator.DescribeStatus(reader.GetInt32(0), reader.GetBoolean(1));
+                    }
+                    else
+                    {
+                        // Same response whether the slug doesn't exist or isn't public - don't leak which.
+                        (message, color) = ("unknown", "#9f9f9f");
+                    }
+                }
+
+                // Best-effort - GitHub's camo image proxy applies its own caching on top of this regardless.
+                context.Response.Headers.CacheControl = "no-cache, max-age=60";
+                return Results.Content(BadgeGenerator.GenerateSvg("kindlekeep", message, color), "image/svg+xml");
             });
 
             return endpoints;
