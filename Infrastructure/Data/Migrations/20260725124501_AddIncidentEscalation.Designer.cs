@@ -3,6 +3,7 @@ using System;
 using KindleKeep.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace kindlekeep_api.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(KindleDbContext))]
-    partial class KindleDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260725124501_AddIncidentEscalation")]
+    partial class AddIncidentEscalation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -91,55 +94,6 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
                     b.ToTable("ApiKeys");
                 });
 
-            modelBuilder.Entity("KindleKeep.Api.Core.Entities.JourneyStep", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AssertEquals")
-                        .HasColumnType("text");
-
-                    b.Property<string>("AssertJsonPath")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Body")
-                        .HasColumnType("text");
-
-                    b.Property<string>("CaptureAs")
-                        .HasColumnType("text");
-
-                    b.Property<string>("CaptureJsonPath")
-                        .HasColumnType("text");
-
-                    b.Property<int?>("ExpectedStatusCode")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Headers")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Method")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("MonitorId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("StepOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("UrlOrPath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MonitorId", "StepOrder")
-                        .IsUnique();
-
-                    b.ToTable("JourneySteps");
-                });
-
             modelBuilder.Entity("KindleKeep.Api.Core.Entities.MonitorTarget", b =>
                 {
                     b.Property<Guid>("Id")
@@ -173,9 +127,6 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
 
                     b.Property<DateTime?>("LastCheckedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("MonitorType")
-                        .HasColumnType("integer");
 
                     b.Property<string>("PublicSlug")
                         .HasColumnType("text");
@@ -211,12 +162,6 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
-
-                    b.Property<string>("CopilotExplanation")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("CopilotGeneratedAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -428,17 +373,6 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("KindleKeep.Api.Core.Entities.JourneyStep", b =>
-                {
-                    b.HasOne("KindleKeep.Api.Core.Entities.MonitorTarget", "Monitor")
-                        .WithMany()
-                        .HasForeignKey("MonitorId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Monitor");
                 });
 
             modelBuilder.Entity("KindleKeep.Api.Core.Entities.MonitorTarget", b =>

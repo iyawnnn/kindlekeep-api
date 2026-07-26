@@ -243,7 +243,21 @@ public class AlertManager(
         await SendResendEmailAsync(email, $"KindleKeep Daily Digest: {incidents.Count} incident(s)", html, stoppingToken);
     }
 
-    private async Task SendResendEmailAsync(string toEmail, string subject, string html, CancellationToken stoppingToken)
+    // Escalation tier for Uptime-Down incidents that go unacknowledged - reuses the existing
+    // Resend path rather than a new HTTP call. Called by EscalationService, not the hot
+    // WatcherEngine -> ProcessUptimeAlertAsync dispatch path.
+    public async Task DispatchEscalationEmailAsync(string monitorName, string monitorUrl, string? email, CancellationToken stoppingToken)
+    {
+        if (string.IsNullOrEmpty(email)) return;
+
+        await SendResendEmailAsync(
+            email,
+            $"Unacknowledged Incident: {monitorName}",
+            $"<p><strong>{monitorName}</strong> ({monitorUrl}) has been down and remains unacknowledged. An initial alert was already sent via Discord/Slack.</p>",
+            stoppingToken);
+    }
+
+    internal async Task SendResendEmailAsync(string toEmail, string subject, string html, CancellationToken stoppingToken)
     {
         var apiKey = configuration["Alerting:ResendApiKey"];
         if (string.IsNullOrEmpty(apiKey)) return;

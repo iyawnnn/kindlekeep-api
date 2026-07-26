@@ -11,6 +11,7 @@ public record MonitorTarget
     
     public int IntervalMinutes { get; init; } = 10;
     public int RequestTimeout { get; init; } = 30;
+    public MonitorType MonitorType { get; init; } = MonitorType.Http;
     
     // JSONB payload for things like Authorization headers
     public string? RequestHeaders { get; set; } 

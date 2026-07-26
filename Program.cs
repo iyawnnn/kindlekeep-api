@@ -4,6 +4,7 @@ using KindleKeep.Api.Core.Entities;
 using KindleKeep.Api.Core.DTOs;
 using KindleKeep.Api.Infrastructure.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
@@ -39,6 +40,23 @@ builder.Services.AddHttpClient("WatcherClient", client =>
     }
 });
 
+builder.Services.AddHttpClient("JourneyClient", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(60);
+    client.DefaultRequestHeaders.Add("User-Agent", "KindleKeep-Sentinel/1.0");
+})
+.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+    {
+        RemoteCertificateValidationCallback = (_, _, _, _) => true
+    },
+    // Journeys carry inter-step state explicitly via captured {{var}} substitution, never
+    // implicit cookies - this client is shared across every user's journey probes, so an
+    // auto-managed CookieContainer would leak session cookies between unrelated monitors.
+    UseCookies = false
+});
+
 builder.Services.AddHttpClient("DiscordClient", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
@@ -50,6 +68,11 @@ builder.Services.AddHttpClient("SlackClient", client =>
 });
 
 builder.Services.AddHttpClient("ResendClient", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
+builder.Services.AddHttpClient("GroqClient", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
 });
@@ -105,12 +128,14 @@ builder.Services.AddDbContextPool<KindleDbContext>(options =>
 
 builder.Services.AddSingleton<KindleKeep.Api.Infrastructure.Identity.TokenService>();
 builder.Services.AddSingleton<KindleKeep.Api.Infrastructure.Alerting.AlertManager>();
+builder.Services.AddSingleton<KindleKeep.Api.Infrastructure.Ai.GroqClient>();
 // Registered as a singleton (not just AddHostedService) so DevEndpoints can inject WatcherEngine
 // directly to call TriggerImmediateProbeAsync from the manual-trigger and GitHub webhook endpoints.
 builder.Services.AddSingleton<KindleKeep.Api.Infrastructure.BackgroundServices.WatcherEngine>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<KindleKeep.Api.Infrastructure.BackgroundServices.WatcherEngine>());
 builder.Services.AddHostedService<KindleKeep.Api.Infrastructure.BackgroundServices.PruningService>();
 builder.Services.AddHostedService<KindleKeep.Api.Infrastructure.BackgroundServices.DigestService>();
+builder.Services.AddHostedService<KindleKeep.Api.Infrastructure.BackgroundServices.EscalationService>();
 builder.Services.AddExceptionHandler<KindleKeep.Api.Infrastructure.Exceptions.GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
@@ -151,6 +176,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// Global backstop so the Copilot feature can never blow through Gemini's free-tier RPM ceiling,
+// no matter how many users hit it - the per-audit cache in MonitorEndpoints is what makes actual
+// token spend low; this just bounds the worst case.
+var copilotRateLimit = builder.Configuration.GetValue<int?>("Ai:CopilotRateLimitPerMinute")
+    ?? int.Parse(Environment.GetEnvironmentVariable("KK_COPILOT_RATE_LIMIT_PER_MINUTE") ?? "8");
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter("copilot", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = copilotRateLimit;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
+    });
+});
+
 builder.Services.AddSignalR()
     .AddJsonProtocol(options => 
     {
@@ -171,6 +213,7 @@ app.UseRouting();
 app.UseCors("FrontendPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapGet("/api/stay-awake", () => TypedResults.Ok(new StayAwakeResponse("awake", DateTime.UtcNow))).WithName("StayAwake");
 app.MapGet("/health", () => TypedResults.Ok("Healthy")).WithName("GetHealthStatus");
@@ -182,6 +225,7 @@ app.MapIncidentEndpoints();
 app.MapVaultEndpoints();
 app.MapPublicEndpoints();
 app.MapDevEndpoints();
+app.MapStatusPageEndpoints();
 app.MapHub<PulseHub>("/hubs/pulse");
 
 app.Run();
@@ -217,6 +261,7 @@ app.Run();
 [JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.UserSettingsResponse))]
 [JsonSerializable(typeof(IncidentResponse))]
 [JsonSerializable(typeof(System.Collections.Generic.List<IncidentResponse>))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.AcknowledgeResponse))]
 [JsonSerializable(typeof(StayAwakeResponse))]
 [JsonSerializable(typeof(object))]
 [JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.VaultTargetResponse))]
@@ -239,6 +284,33 @@ app.Run();
 [JsonSerializable(typeof(System.Collections.Generic.List<UptimeLog>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<SecurityAudit>))]
 [JsonSerializable(typeof(System.Collections.Generic.List<AlertIncident>))]
+[JsonSerializable(typeof(StatusPage))]
+[JsonSerializable(typeof(StatusPageService))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.CreateStatusPageRequest))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.UpdateStatusPageRequest))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.StatusPageResponse))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.StatusPageSummaryResponse))]
+[JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.StatusPageSummaryResponse>))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.AttachServiceRequest))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.UpdateServiceRequest))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.StatusPageServiceResponse))]
+[JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.StatusPageServiceResponse>))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.ServiceOrderEntry))]
+[JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.ServiceOrderEntry>))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.ReorderServicesRequest))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.StatusPageDetailResponse))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.PublicServiceResponse))]
+[JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.PublicServiceResponse>))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.PublicIncidentResponse))]
+[JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.PublicIncidentResponse>))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.PublicStatusPageResponse))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.JourneyStepDto))]
+[JsonSerializable(typeof(System.Collections.Generic.List<KindleKeep.Api.Core.DTOs.JourneyStepDto>))]
+[JsonSerializable(typeof(JourneyStep))]
+[JsonSerializable(typeof(System.Collections.Generic.List<JourneyStep>))]
+[JsonSerializable(typeof(KindleKeep.Api.Infrastructure.Ai.GroqRequest))]
+[JsonSerializable(typeof(KindleKeep.Api.Infrastructure.Ai.GroqResponse))]
+[JsonSerializable(typeof(KindleKeep.Api.Core.DTOs.CopilotResponse))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext
 {
 }

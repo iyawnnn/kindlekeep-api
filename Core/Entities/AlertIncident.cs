@@ -9,6 +9,8 @@ public record AlertIncident
     public bool IsResolved { get; set; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? ResolvedAt { get; set; }
+    public DateTime? AcknowledgedAt { get; set; }
+    public DateTime? EscalatedAt { get; set; }
 
     public MonitorTarget? Monitor { get; init; }
 }

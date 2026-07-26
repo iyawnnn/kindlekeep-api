@@ -12,5 +12,12 @@ public record IncidentResponse(
     [property: JsonPropertyName("isResolved")] bool IsResolved,
     [property: JsonPropertyName("startTime")] DateTime StartTime,
     [property: JsonPropertyName("resolvedAt")] DateTime? ResolvedAt,
-    [property: JsonPropertyName("occurrenceCount")] int OccurrenceCount
+    [property: JsonPropertyName("occurrenceCount")] int OccurrenceCount,
+    [property: JsonPropertyName("acknowledgedAt")] DateTime? AcknowledgedAt,
+    [property: JsonPropertyName("escalatedAt")] DateTime? EscalatedAt,
+    [property: JsonPropertyName("mttrMinutes")] double? MttrMinutes
+);
+
+public record AcknowledgeResponse(
+    [property: JsonPropertyName("acknowledgedAt")] DateTime AcknowledgedAt
 );

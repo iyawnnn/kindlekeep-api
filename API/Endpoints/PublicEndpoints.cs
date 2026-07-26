@@ -116,6 +116,147 @@ namespace KindleKeep.Api.API.Endpoints
                 return Results.Content(BadgeGenerator.GenerateSvg("kindlekeep", message, color), "image/svg+xml");
             });
 
+            group.MapGet("/status-pages/{slug}", async (string slug, [FromServices] NpgsqlDataSource dataSource) =>
+            {
+                await using var connection = await dataSource.OpenConnectionAsync();
+
+                Guid pageId;
+                string name;
+
+                await using (var command = connection.CreateCommand())
+                {
+                    // Same 404 whether the slug doesn't exist or the page isn't published -
+                    // don't leak which.
+                    command.CommandText = @"
+                        SELECT ""Id"", ""Name""
+                        FROM ""StatusPages""
+                        WHERE ""Slug"" = $1 AND ""IsPublished"" = true;";
+                    command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = slug });
+
+                    await using var reader = await command.ExecuteReaderAsync();
+                    if (!await reader.ReadAsync())
+                    {
+                        return Results.NotFound();
+                    }
+
+                    pageId = reader.GetGuid(0);
+                    name = reader.GetString(1);
+                }
+
+                var serviceRows = new List<(Guid MonitorId, string DisplayName, string? SectionName, int SortOrder, UptimeStatus Status)>();
+
+                await using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = @"
+                        SELECT s.""MonitorId"", s.""DisplayName"", s.""SectionName"", s.""SortOrder"", mt.""CurrentUptimeStatus""
+                        FROM ""StatusPageServices"" s
+                        INNER JOIN ""MonitorTargets"" mt ON mt.""Id"" = s.""MonitorId""
+                        WHERE s.""StatusPageId"" = $1
+                        ORDER BY s.""SectionName"" NULLS FIRST, s.""SortOrder"";";
+                    command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = pageId });
+
+                    await using var reader = await command.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        serviceRows.Add((
+                            reader.GetGuid(0),
+                            reader.GetString(1),
+                            reader.IsDBNull(2) ? null : reader.GetString(2),
+                            reader.GetInt32(3),
+                            (UptimeStatus)reader.GetInt32(4)
+                        ));
+                    }
+                }
+
+                var monitorIds = serviceRows.ConvertAll(r => r.MonitorId);
+                var historyByMonitor = new Dictionary<Guid, List<UptimeLogResponse>>();
+
+                if (monitorIds.Count > 0)
+                {
+                    await using var command = connection.CreateCommand();
+                    command.CommandText = @"
+                        SELECT ""MonitorId"", ""Timestamp"", ""StatusCode"", ""LatencyMs""
+                        FROM ""UptimeLogs""
+                        WHERE ""MonitorId"" = ANY($1)
+                        ORDER BY ""Timestamp"" DESC;";
+                    command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Uuid, Value = monitorIds.ToArray() });
+
+                    await using var reader = await command.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        var monitorId = reader.GetGuid(0);
+                        if (!historyByMonitor.TryGetValue(monitorId, out var list))
+                        {
+                            list = [];
+                            historyByMonitor[monitorId] = list;
+                        }
+
+                        if (list.Count >= 144) continue;
+
+                        var statusCode = reader.IsDBNull(2) ? (int?)null : reader.GetInt32(2);
+                        list.Add(new UptimeLogResponse(
+                            reader.GetDateTime(1),
+                            statusCode is >= 200 and < 300 ? UptimeStatus.Healthy : UptimeStatus.Down,
+                            reader.GetInt32(3)
+                        ));
+                    }
+                }
+
+                var services = new List<PublicServiceResponse>();
+                foreach (var row in serviceRows)
+                {
+                    var history = historyByMonitor.TryGetValue(row.MonitorId, out var list) ? list : [];
+                    history.Reverse();
+                    services.Add(new PublicServiceResponse(row.DisplayName, row.SectionName, row.SortOrder, row.Status, history));
+                }
+
+                var downCount = 0;
+                foreach (var row in serviceRows)
+                {
+                    if (row.Status is UptimeStatus.Down or UptimeStatus.Quarantined) downCount++;
+                }
+
+                var aggregateStatus = services.Count == 0 || downCount == 0
+                    ? 0 // Operational
+                    : downCount >= services.Count || downCount > services.Count / 2
+                        ? 2 // MajorOutage
+                        : 1; // PartialOutage
+
+                var incidents = new List<PublicIncidentResponse>();
+
+                if (monitorIds.Count > 0)
+                {
+                    await using var command = connection.CreateCommand();
+                    command.CommandText = @"
+                        SELECT mt.""FriendlyName"", ai.""IncidentType"", ai.""CreatedAt"", ai.""ResolvedAt""
+                        FROM ""AlertIncidents"" ai
+                        INNER JOIN ""MonitorTargets"" mt ON mt.""Id"" = ai.""MonitorId""
+                        WHERE ai.""MonitorId"" = ANY($1)
+                        ORDER BY ai.""CreatedAt"" DESC
+                        LIMIT 20;";
+                    command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Uuid, Value = monitorIds.ToArray() });
+
+                    await using var reader = await command.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        var createdAt = reader.GetDateTime(2);
+                        DateTime? resolvedAt = reader.IsDBNull(3) ? null : reader.GetDateTime(3);
+                        int? mttrMinutes = resolvedAt is null ? null : (int)(resolvedAt.Value - createdAt).TotalMinutes;
+
+                        incidents.Add(new PublicIncidentResponse(
+                            reader.GetString(0),
+                            reader.GetString(1),
+                            createdAt,
+                            resolvedAt,
+                            mttrMinutes
+                        ));
+                    }
+                }
+
+                var response = new PublicStatusPageResponse(name, aggregateStatus, services, incidents);
+                return Results.Ok(response);
+            });
+
             return endpoints;
         }
     }

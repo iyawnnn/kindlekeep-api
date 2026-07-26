@@ -14,3 +14,9 @@ public enum UptimeStatus
     Degraded,
     Quarantined
 }
+
+public enum MonitorType
+{
+    Http,
+    Journey
+}

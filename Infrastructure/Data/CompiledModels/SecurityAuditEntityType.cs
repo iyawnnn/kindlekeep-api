@@ -21,7 +21,7 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 "KindleKeep.Api.Core.Entities.SecurityAudit",
                 typeof(SecurityAudit),
                 baseEntityType,
-                propertyCount: 11,
+                propertyCount: 13,
                 navigationCount: 1,
                 foreignKeyCount: 1,
                 unnamedIndexCount: 1,
@@ -36,6 +36,22 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 afterSaveBehavior: PropertySaveBehavior.Throw,
                 sentinel: new Guid("00000000-0000-0000-0000-000000000000"));
             id.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
+            var copilotExplanation = runtimeEntityType.AddProperty(
+                "CopilotExplanation",
+                typeof(string),
+                propertyInfo: typeof(SecurityAudit).GetProperty("CopilotExplanation", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(SecurityAudit).GetField("<CopilotExplanation>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                nullable: true);
+            copilotExplanation.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
+            var copilotGeneratedAt = runtimeEntityType.AddProperty(
+                "CopilotGeneratedAt",
+                typeof(DateTime?),
+                propertyInfo: typeof(SecurityAudit).GetProperty("CopilotGeneratedAt", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(SecurityAudit).GetField("<CopilotGeneratedAt>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                nullable: true);
+            copilotGeneratedAt.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
 
             var createdAt = runtimeEntityType.AddProperty(
                 "CreatedAt",

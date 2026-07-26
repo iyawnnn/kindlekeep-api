@@ -20,6 +20,7 @@ public class User
     public string? SlackWebhookUrl { get; set; }
     public bool DigestEnabled { get; set; } = false;
     public string? GithubWebhookSecret { get; set; }
+    public int EscalationDelayMinutes { get; set; } = 10;
 
     [JsonIgnore]
     public ICollection<MonitorTarget> Monitors { get; set; } = new List<MonitorTarget>();

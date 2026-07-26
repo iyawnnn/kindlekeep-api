@@ -12,7 +12,7 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
     public partial class KindleDbContextModel
     {
         private KindleDbContextModel()
-            : base(skipDetectChanges: false, modelId: new Guid("15630e13-fd1f-444f-b5e9-94ad2620a6b4"), entityTypeCount: 6)
+            : base(skipDetectChanges: false, modelId: new Guid("5c73a7d1-9d0d-4608-b82c-cfc48f71c67d"), entityTypeCount: 9)
         {
         }
 
@@ -20,21 +20,31 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
         {
             var alertIncident = AlertIncidentEntityType.Create(this);
             var apiKey = ApiKeyEntityType.Create(this);
+            var journeyStep = JourneyStepEntityType.Create(this);
             var monitorTarget = MonitorTargetEntityType.Create(this);
             var securityAudit = SecurityAuditEntityType.Create(this);
+            var statusPage = StatusPageEntityType.Create(this);
+            var statusPageService = StatusPageServiceEntityType.Create(this);
             var uptimeLog = UptimeLogEntityType.Create(this);
             var user = UserEntityType.Create(this);
 
             AlertIncidentEntityType.CreateForeignKey1(alertIncident, monitorTarget);
             ApiKeyEntityType.CreateForeignKey1(apiKey, user);
+            JourneyStepEntityType.CreateForeignKey1(journeyStep, monitorTarget);
             MonitorTargetEntityType.CreateForeignKey1(monitorTarget, user);
             SecurityAuditEntityType.CreateForeignKey1(securityAudit, monitorTarget);
+            StatusPageEntityType.CreateForeignKey1(statusPage, user);
+            StatusPageServiceEntityType.CreateForeignKey1(statusPageService, monitorTarget);
+            StatusPageServiceEntityType.CreateForeignKey2(statusPageService, statusPage);
             UptimeLogEntityType.CreateForeignKey1(uptimeLog, monitorTarget);
 
             AlertIncidentEntityType.CreateAnnotations(alertIncident);
             ApiKeyEntityType.CreateAnnotations(apiKey);
+            JourneyStepEntityType.CreateAnnotations(journeyStep);
             MonitorTargetEntityType.CreateAnnotations(monitorTarget);
             SecurityAuditEntityType.CreateAnnotations(securityAudit);
+            StatusPageEntityType.CreateAnnotations(statusPage);
+            StatusPageServiceEntityType.CreateAnnotations(statusPageService);
             UptimeLogEntityType.CreateAnnotations(uptimeLog);
             UserEntityType.CreateAnnotations(user);
 

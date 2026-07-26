@@ -23,7 +23,7 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 "KindleKeep.Api.Core.Entities.MonitorTarget",
                 typeof(MonitorTarget),
                 baseEntityType,
-                propertyCount: 16,
+                propertyCount: 17,
                 navigationCount: 1,
                 foreignKeyCount: 1,
                 unnamedIndexCount: 2,
@@ -109,6 +109,14 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 fieldInfo: typeof(MonitorTarget).GetField("<LastCheckedAt>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
                 nullable: true);
             lastCheckedAt.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
+            var monitorType = runtimeEntityType.AddProperty(
+                "MonitorType",
+                typeof(MonitorType),
+                propertyInfo: typeof(MonitorTarget).GetProperty("MonitorType", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(MonitorTarget).GetField("<MonitorType>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly));
+            monitorType.SetSentinelFromProviderValue(0);
+            monitorType.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
 
             var publicSlug = runtimeEntityType.AddProperty(
                 "PublicSlug",

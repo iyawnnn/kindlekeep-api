@@ -21,7 +21,7 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 "KindleKeep.Api.Core.Entities.AlertIncident",
                 typeof(AlertIncident),
                 baseEntityType,
-                propertyCount: 7,
+                propertyCount: 9,
                 navigationCount: 1,
                 foreignKeyCount: 1,
                 unnamedIndexCount: 1,
@@ -37,6 +37,14 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 sentinel: new Guid("00000000-0000-0000-0000-000000000000"));
             id.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
 
+            var acknowledgedAt = runtimeEntityType.AddProperty(
+                "AcknowledgedAt",
+                typeof(DateTime?),
+                propertyInfo: typeof(AlertIncident).GetProperty("AcknowledgedAt", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(AlertIncident).GetField("<AcknowledgedAt>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                nullable: true);
+            acknowledgedAt.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
             var createdAt = runtimeEntityType.AddProperty(
                 "CreatedAt",
                 typeof(DateTime),
@@ -44,6 +52,14 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 fieldInfo: typeof(AlertIncident).GetField("<CreatedAt>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
                 sentinel: new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified));
             createdAt.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
+            var escalatedAt = runtimeEntityType.AddProperty(
+                "EscalatedAt",
+                typeof(DateTime?),
+                propertyInfo: typeof(AlertIncident).GetProperty("EscalatedAt", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(AlertIncident).GetField("<EscalatedAt>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                nullable: true);
+            escalatedAt.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
 
             var incidentHash = runtimeEntityType.AddProperty(
                 "IncidentHash",

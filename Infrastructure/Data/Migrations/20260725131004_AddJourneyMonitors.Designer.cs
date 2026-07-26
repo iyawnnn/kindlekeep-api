@@ -3,6 +3,7 @@ using System;
 using KindleKeep.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace kindlekeep_api.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(KindleDbContext))]
-    partial class KindleDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260725131004_AddJourneyMonitors")]
+    partial class AddJourneyMonitors
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -211,12 +214,6 @@ namespace kindlekeep_api.Infrastructure.Data.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
-
-                    b.Property<string>("CopilotExplanation")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("CopilotGeneratedAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

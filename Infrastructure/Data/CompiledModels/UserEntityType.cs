@@ -21,7 +21,7 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 "KindleKeep.Api.Core.Entities.User",
                 typeof(User),
                 baseEntityType,
-                propertyCount: 12,
+                propertyCount: 13,
                 navigationCount: 1,
                 keyCount: 1);
 
@@ -96,6 +96,16 @@ namespace KindleKeep.Api.Infrastructure.Data.CompiledModels
                 fieldInfo: typeof(User).GetField("<EnableEmailNotifications>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
                 sentinel: false);
             enableEmailNotifications.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+
+            var escalationDelayMinutes = runtimeEntityType.AddProperty(
+                "EscalationDelayMinutes",
+                typeof(int),
+                propertyInfo: typeof(User).GetProperty("EscalationDelayMinutes", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                fieldInfo: typeof(User).GetField("<EscalationDelayMinutes>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly),
+                valueGenerated: ValueGenerated.OnAdd,
+                sentinel: 0);
+            escalationDelayMinutes.AddAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.None);
+            escalationDelayMinutes.AddAnnotation("Relational:DefaultValue", 10);
 
             var externalId = runtimeEntityType.AddProperty(
                 "ExternalId",

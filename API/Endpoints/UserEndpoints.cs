@@ -16,7 +16,8 @@ namespace KindleKeep.Api.Core.DTOs
         [property: JsonPropertyName("discordWebhookUrl")] string? DiscordWebhookUrl,
         [property: JsonPropertyName("enableEmailNotifications")] bool EnableEmailNotifications,
         [property: JsonPropertyName("slackWebhookUrl")] string? SlackWebhookUrl,
-        [property: JsonPropertyName("digestEnabled")] bool DigestEnabled
+        [property: JsonPropertyName("digestEnabled")] bool DigestEnabled,
+        [property: JsonPropertyName("escalationDelayMinutes")] int EscalationDelayMinutes
     );
 
     public record UserUsageResponse(
@@ -28,7 +29,8 @@ namespace KindleKeep.Api.Core.DTOs
         [property: JsonPropertyName("discordWebhookUrl")] string? DiscordWebhookUrl,
         [property: JsonPropertyName("enableEmailNotifications")] bool EnableEmailNotifications,
         [property: JsonPropertyName("slackWebhookUrl")] string? SlackWebhookUrl,
-        [property: JsonPropertyName("digestEnabled")] bool DigestEnabled
+        [property: JsonPropertyName("digestEnabled")] bool DigestEnabled,
+        [property: JsonPropertyName("escalationDelayMinutes")] int EscalationDelayMinutes
     );
 }
 
@@ -325,7 +327,7 @@ namespace KindleKeep.Api.API.Endpoints
                 await using var command = connection.CreateCommand();
                 
                 command.CommandText = @"
-                    SELECT ""DiscordWebhookUrl"", ""EnableEmailNotifications"", ""SlackWebhookUrl"", ""DigestEnabled""
+                    SELECT ""DiscordWebhookUrl"", ""EnableEmailNotifications"", ""SlackWebhookUrl"", ""DigestEnabled"", ""EscalationDelayMinutes""
                     FROM ""Users""
                     WHERE ""Id"" = $1;";
 
@@ -342,7 +344,8 @@ namespace KindleKeep.Api.API.Endpoints
                     reader.IsDBNull(0) ? null : reader.GetString(0),
                     reader.GetBoolean(1),
                     reader.IsDBNull(2) ? null : reader.GetString(2),
-                    reader.GetBoolean(3)
+                    reader.GetBoolean(3),
+                    reader.GetInt32(4)
                 );
 
                 return Results.Ok(response);
@@ -366,14 +369,16 @@ namespace KindleKeep.Api.API.Endpoints
                     SET ""DiscordWebhookUrl"" = $1,
                         ""EnableEmailNotifications"" = $2,
                         ""SlackWebhookUrl"" = $3,
-                        ""DigestEnabled"" = $4
-                    WHERE ""Id"" = $5
+                        ""DigestEnabled"" = $4,
+                        ""EscalationDelayMinutes"" = $5
+                    WHERE ""Id"" = $6
                     RETURNING ""Id"";";
 
                 command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = request.DiscordWebhookUrl ?? (object)DBNull.Value });
                 command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = request.EnableEmailNotifications });
                 command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = request.SlackWebhookUrl ?? (object)DBNull.Value });
                 command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = request.DigestEnabled });
+                command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = Math.Max(1, request.EscalationDelayMinutes) });
                 command.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = userId });
 
                 var result = await command.ExecuteScalarAsync();

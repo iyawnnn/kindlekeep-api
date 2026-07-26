@@ -16,8 +16,13 @@ public record SecurityAudit
     public string? TlsVersion { get; init; }
     
     // JSONB payload for deep inspection later
-    public string? RawHeaders { get; init; } 
+    public string? RawHeaders { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+
+    // Cached Gemini explanation for this exact audit row - set once, reused on every
+    // subsequent /copilot call for the same audit so re-opening the modal never re-spends a token.
+    public string? CopilotExplanation { get; set; }
+    public DateTime? CopilotGeneratedAt { get; set; }
 
     // Navigation property
     public MonitorTarget? Monitor { get; init; }
